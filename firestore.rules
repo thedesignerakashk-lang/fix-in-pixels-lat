@@ -1,0 +1,63 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+             request.auth.token.email == "thedesignerakashk@gmail.com" && 
+             request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Project Validation Helper
+    function isValidProject(data) {
+      return data.keys().hasAll(['title', 'image', 'span', 'isFeatured']) &&
+             data.keys().size() <= 15 &&
+             data.title is string && data.title.size() <= 100 &&
+             data.image is string && data.image.size() <= 1000 &&
+             data.span in ['wide', 'portrait', 'normal'] &&
+             data.isFeatured is bool &&
+             (data.get('tags', []) is list && data.get('tags', []).size() <= 10) &&
+             (data.get('order', 0) is number);
+    }
+
+    // Collections
+    match /projects/{projectId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(projectId) && isValidProject(incoming()) && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidProject(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'image', 'span', 'isFeatured', 'tags', 'order', 
+          'description', 'client', 'year', 'role', 'duration', 'liveUrl', 'updatedAt'
+        ])
+      ) && incoming().updatedAt == request.time;
+      allow delete: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      allow write: if false; // System initialized only
+    }
+  }
+}
